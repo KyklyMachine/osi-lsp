@@ -1,0 +1,17 @@
+.vscode/**
+.vscode-test/**
+client/src/**
+client/tsconfig.json
+client/.eslintrc.json
+server/**/*.pyc
+server/**/__pycache__
+server/venv/**
+server/env/**
+**/.git
+**/.gitignore
+**/.DS_Store
+**/node_modules
+**/npm-debug.log
+**/*.map
+**/*.ts
+!client/out/**/*.js

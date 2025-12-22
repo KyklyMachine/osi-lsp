@@ -1,0 +1,84 @@
+{
+  "name": "protocol-language",
+  "displayName": "Protocol Language Support",
+  "description": "Language support for Protocol Language - a specialized language for network protocol description",
+  "version": "0.1.0",
+  "publisher": "protocol-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "protocol",
+    "network",
+    "language server"
+  ],
+  "activationEvents": [
+    "onLanguage:protocol"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "protocol",
+        "aliases": [
+          "Protocol",
+          "protocol"
+        ],
+        "extensions": [
+          ".protocol",
+          ".prot"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "protocol",
+        "scopeName": "source.protocol",
+        "path": "../syntaxes/protocol.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Protocol Language Server",
+      "properties": {
+        "protocolLanguageServer.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python executable"
+        },
+        "protocolLanguageServer.trace.server": {
+          "scope": "window",
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

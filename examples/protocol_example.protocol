@@ -1,0 +1,182 @@
+; Network Protocol Example
+; Demonstrates buffers, timers, queues, and event handling
+
+## T_CONNECT.REQ
+```
+; Handle connection request from upper layer
+address declare string
+connection_id declare integer
+timeout_timer declare integer
+send_buffer declare buffer
+
+; Get parameters from event
+; address parameter would be passed in the event
+
+; Generate connection ID
+1 varset connection_id
+
+; Create connection request packet
+; Format: [Type(1) | ConnID(1) | Address(variable)]
+send_buffer bufferit 20 1 1 $connection_id 1
+
+; Send to network layer
+N_CONNECT.REQ eventdown address $address userdata $send_buffer
+
+; Set connection timeout timer (5000 time units)
+T_TIMEOUT timer timeout_timer 5000 connection_id $connection_id
+
+out "Connection request sent, waiting for response..."
+return
+```
+
+## N_CONNECT.CONF
+```
+; Connection confirmation from network layer
+result declare integer
+recv_buffer declare buffer
+packet_type declare integer
+conn_id declare integer
+
+; Parse received packet
+unbufferit userdata packet_type 1 conn_id 1
+
+; Check packet type
+$packet_type == 2 if success_response
+goto error_response
+
+success_response:
+    out "Connection established successfully"
+
+    ; Cancel timeout timer
+    untimer $timeout_timer
+
+    ; Notify upper layer
+    T_CONNECT.CONF generateup connection_id $conn_id status "OK"
+    goto exit
+
+error_response:
+    out "Connection failed"
+
+    ; Cancel timeout timer
+    untimer $timeout_timer
+
+    ; Notify upper layer of failure
+    T_CONNECT.CONF generateup connection_id $conn_id status "FAILED"
+
+exit:
+    return
+```
+
+## T_TIMEOUT
+```
+; Timeout handler
+out "Connection timeout occurred"
+
+; Notify upper layer
+T_DISCONNECT.IND generateup reason "TIMEOUT"
+
+return
+```
+
+## T_DATA.REQ
+```
+; Data transfer request
+data_buffer declare buffer
+packet_buffer declare buffer
+sequence_number declare integer
+crc_value declare integer
+packet_queue declare queue
+
+; Get data from event parameters
+; Assume data is in userdata parameter
+
+; Initialize sequence number
+0 varset sequence_number
+
+; Create data packet
+; Format: [Type(1) | SeqNum(2) | Data(variable) | CRC(2)]
+packet_buffer bufferit 100 3 1 $sequence_number 2 $data_buffer 50
+
+; Calculate CRC
+calccrc crc_value $packet_buffer
+
+; Queue packet for transmission
+queue packet_queue $packet_buffer
+
+; Send packet
+N_DATA.REQ eventdown userdata $packet_buffer
+
+out "Data packet sent, sequence: " $sequence_number
+
+return
+```
+
+## N_DATA.IND
+```
+; Data received from network layer
+recv_buffer declare buffer
+msg_type declare integer
+seq_num declare integer
+data declare buffer
+received_crc declare integer
+calculated_crc declare integer
+
+; Parse packet
+unbufferit userdata msg_type 1 seq_num 2 data 50 received_crc 2
+
+; Verify CRC
+calccrc calculated_crc $data
+
+$calculated_crc == $received_crc if crc_ok
+goto crc_error
+
+crc_ok:
+    out "Data received OK, sequence: " $seq_num
+
+    ; Forward data to upper layer
+    T_DATA.IND generateup userdata $data sequence $seq_num
+    goto exit
+
+crc_error:
+    out "CRC error detected!"
+
+    ; Send error indication
+    T_ERROR.IND generateup error_type "CRC_ERROR" sequence $seq_num
+
+exit:
+    return
+```
+
+## T_DISCONNECT.REQ
+```
+; Disconnection request
+disc_buffer declare buffer
+
+; Create disconnect packet
+disc_buffer bufferit 2 4 1 0 1
+
+; Send to network layer
+N_DISCONNECT.REQ eventdown userdata $disc_buffer
+
+out "Disconnect request sent"
+
+return
+```
+
+; Helper subroutines
+return
+
+substart calculate_checksum
+    ; Calculate simple checksum
+    ; (This is a simplified example)
+    checksum declare integer
+    0 varset checksum
+    ; In real implementation, would iterate over buffer
+    ; and sum bytes
+subend
+
+substart log_error
+    error_msg declare string
+    "ERROR" varset error_msg
+    out $error_msg
+subend
