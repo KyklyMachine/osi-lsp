@@ -3,21 +3,23 @@
 from typing import List, Optional, Dict, Any
 from .lexer import Token, TokenType
 from .ast_nodes import *
+from .errors import ProtocolError
 
 
 class Parser:
     """Recursive descent parser for Protocol Language"""
 
     def __init__(self, tokens: List[Token]):
-        self.tokens = [t for t in tokens if t.type not in (TokenType.COMMENT, TokenType.NEWLINE)]
+        self.tokens = [t for t in tokens if t.type != TokenType.COMMENT]
         self.pos = 0
         self.current_token = self.tokens[0] if self.tokens else Token(TokenType.EOF, '', 0, 0)
 
     def error(self, msg: str):
         """Raise parser error"""
-        raise Exception(
-            f"Parser error at {self.current_token.line}:{self.current_token.column}: {msg}\n"
-            f"Current token: {self.current_token}"
+        raise ProtocolError(
+            f"Parser error: {msg}",
+            self.current_token.line,
+            self.current_token.column
         )
 
     def advance(self):
@@ -45,34 +47,23 @@ class Parser:
 
     def parse(self) -> Program:
         """Parse the entire program"""
-        handlers = []
+        statements = []
 
         while self.current_token.type != TokenType.EOF:
-            if self.current_token.type == TokenType.HANDLER:
-                handlers.append(self.parse_handler())
-            else:
-                self.error(f"Expected handler (##), got {self.current_token.value}")
-
-        return Program(handlers=handlers)
-
-    def parse_handler(self) -> Handler:
-        """Parse a handler block"""
-        handler_token = self.expect(TokenType.HANDLER)
-        name = handler_token.value
-        line = handler_token.line
-        column = handler_token.column
-
-        statements = []
-        while self.current_token.type != TokenType.EOF and self.current_token.type != TokenType.HANDLER:
             stmt = self.parse_statement()
             if stmt:
                 statements.append(stmt)
 
-        return Handler(name=name, line=line, column=column, statements=statements)
+        return Program(statements=statements)
 
     def parse_statement(self) -> Optional[Statement]:
         """Parse a single statement"""
         token = self.current_token
+
+        # Newline (empty statement)
+        if token.type == TokenType.NEWLINE:
+            self.advance()
+            return None
 
         # Label definition
         if token.type == TokenType.LABEL:
@@ -196,8 +187,13 @@ class Parser:
             else:
                 self.error("eventdown requires event name before it")
 
-        # Expression alone (might be valid in some contexts, or error)
-        self.error(f"Unexpected token after expression: {self.current_token.type.name}")
+        # If no specific statement keyword follows, treat as an expression statement
+        # (e.g. standalone function call)
+        return ExpressionStatement(
+            expression=expr,
+            line=expr.line,
+            column=expr.column
+        )
 
     def parse_declare(self) -> DeclareStatement:
         """Parse variable declaration: name declare type"""
@@ -205,7 +201,7 @@ class Parser:
         self.expect(TokenType.DECLARE)
         type_token = self.current_token
 
-        if type_token.type not in (TokenType.INTEGER, TokenType.BUFFER, TokenType.STRING, TokenType.QUEUE_TYPE):
+        if type_token.type not in (TokenType.INTEGER, TokenType.BUFFER, TokenType.STRING, TokenType.QUEUE, TokenType.QUEUE_TYPE):
             self.error(f"Expected type (integer, buffer, string, queue), got {type_token.value}")
 
         var_type = type_token.value.lower()
@@ -221,7 +217,14 @@ class Parser:
     def parse_varset_with_expr(self, expr: Expression) -> VarsetStatement:
         """Parse varset with already-parsed expression"""
         self.expect(TokenType.VARSET)
-        var_token = self.expect(TokenType.VARIABLE)
+        
+        var_token = self.current_token
+        if var_token.type == TokenType.VARIABLE:
+            self.advance()
+        elif var_token.type == TokenType.IDENTIFIER:
+            self.advance()
+        else:
+            self.error(f"Expected variable or identifier, got {var_token.type.name}")
 
         return VarsetStatement(
             expression=expr,
@@ -239,15 +242,15 @@ class Parser:
 
         # Parse fields (value, length pairs)
         fields = []
-        while self.current_token.type not in (TokenType.EOF, TokenType.HANDLER, TokenType.IDENTIFIER,
+        while self.current_token.type not in (TokenType.EOF, TokenType.IDENTIFIER,
                                               TokenType.GOTO, TokenType.RETURN, TokenType.LABEL,
                                               TokenType.OUT, TokenType.SUBPROG, TokenType.SUBSTART,
-                                              TokenType.SUBEND) and \
+                                              TokenType.SUBEND, TokenType.NEWLINE) and \
               self.current_token.type not in (TokenType.UNBUFFERIT, TokenType.CALCCRC,
                                              TokenType.UNTIMER, TokenType.CLEARQUEUE, TokenType.DELETE):
             value = self.parse_expression()
 
-            if self.current_token.type in (TokenType.EOF, TokenType.HANDLER):
+            if self.current_token.type == TokenType.EOF:
                 break
 
             length = self.parse_expression()
@@ -278,7 +281,7 @@ class Parser:
 
         # Parse fields (variable, length pairs)
         fields = []
-        while self.current_token.type not in (TokenType.EOF, TokenType.HANDLER) and \
+        while self.current_token.type not in (TokenType.EOF, TokenType.NEWLINE) and \
               self.current_token.type not in (TokenType.GOTO, TokenType.RETURN, TokenType.LABEL,
                                              TokenType.OUT, TokenType.SUBPROG):
             if self.current_token.type == TokenType.VARIABLE:
@@ -322,7 +325,15 @@ class Parser:
         self.expect(TokenType.TIMER)
 
         # Parse timer variable
-        timer_var = self.expect(TokenType.VARIABLE).value
+        var_token = self.current_token
+        if var_token.type == TokenType.VARIABLE:
+            self.advance()
+        elif var_token.type == TokenType.IDENTIFIER:
+            self.advance()
+        else:
+            self.error(f"Expected variable or identifier for timer, got {var_token.type.name}")
+        
+        timer_var = var_token.value
 
         # Parse delay
         delay = self.parse_expression()

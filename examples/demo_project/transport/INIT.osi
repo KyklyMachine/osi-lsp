@@ -1,0 +1,25 @@
+; ==========================================================
+; INIT.osi
+; Инициализация переменных транспортного уровня
+; ==========================================================
+
+; Состояние соединения
+state declare integer
+is_connected declare integer
+
+; Счетчики последовательностей
+tx_sequence declare integer
+rx_sequence declare integer
+retry_count declare integer
+
+; Идентификаторы таймеров
+retrans_timer declare integer
+keepalive_timer declare integer
+
+; Буферы данных
+tx_buffer declare buffer
+rx_buffer declare buffer
+temp_buffer declare buffer
+
+; Константы (эмулируются переменными, так как констант нет)
+MAX_RETRIES declare integer

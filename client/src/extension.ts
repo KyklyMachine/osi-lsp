@@ -1,5 +1,5 @@
 /**
- * VS Code Extension for Protocol Language
+ * VS Code Extension for OSI Protocol Language
  */
 
 import * as path from 'path';
@@ -14,22 +14,38 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: ExtensionContext) {
-    console.log('Protocol Language Extension is now active');
+    console.log('OSI Protocol Language Extension is now active');
 
     // Get Python path from configuration
-    const config = workspace.getConfiguration('protocolLanguageServer');
-    const pythonPath = config.get<string>('pythonPath', 'python');
+    const config = workspace.getConfiguration('osiLanguageServer');
+    let pythonPath = config.get<string>('pythonPath', 'python');
 
-    // Path to the language server
-    const serverPath = context.asAbsolutePath(
-        path.join('..', 'server', 'protocol_ls', 'server.py')
+    // Check if a virtual environment exists in the server directory
+    // If pythonPath is still default 'python', try to use the venv
+    if (pythonPath === 'python') {
+        const venvPythonPath = context.asAbsolutePath(
+            path.join('..', 'server', 'venv', process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'python.exe' : 'python')
+        );
+        
+        const fs = require('fs');
+        if (fs.existsSync(venvPythonPath)) {
+            pythonPath = venvPythonPath;
+            console.log(`Using virtual environment Python: ${pythonPath}`);
+        }
+    }
+
+    // Path to the language server module directory
+    const serverDir = context.asAbsolutePath(
+        path.join('..', 'server')
     );
 
     // Check if server file exists
     const fs = require('fs');
-    if (!fs.existsSync(serverPath)) {
+    // We check for the module file existence to be safe, though we run via -m
+    const serverEntry = path.join(serverDir, 'osi_lsp', 'server.py');
+    if (!fs.existsSync(serverEntry)) {
         window.showErrorMessage(
-            `Protocol Language Server not found at ${serverPath}. ` +
+            `OSI Language Server not found at ${serverEntry}. ` +
             `Please ensure the server is installed correctly.`
         );
         return;
@@ -38,38 +54,38 @@ export function activate(context: ExtensionContext) {
     // Server options
     const serverOptions: ServerOptions = {
         command: pythonPath,
-        args: [serverPath],
+        args: ['-m', 'osi_lsp.server'],
         transport: TransportKind.stdio,
         options: {
-            cwd: path.dirname(serverPath)
+            cwd: serverDir
         }
     };
 
     // Client options
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: 'protocol' }
+            { scheme: 'file', language: 'osi' }
         ],
         synchronize: {
-            fileEvents: workspace.createFileSystemWatcher('**/*.{protocol,prot}')
+            fileEvents: workspace.createFileSystemWatcher('**/*.osi')
         },
-        outputChannelName: 'Protocol Language Server'
+        outputChannelName: 'OSI Language Server'
     };
 
     // Create the language client
     client = new LanguageClient(
-        'protocolLanguageServer',
-        'Protocol Language Server',
+        'osiLanguageServer',
+        'OSI Language Server',
         serverOptions,
         clientOptions
     );
 
     // Start the client (this will also launch the server)
     client.start().then(() => {
-        console.log('Protocol Language Server started');
+        console.log('OSI Language Server started');
     }).catch((error) => {
         window.showErrorMessage(
-            `Failed to start Protocol Language Server: ${error.message}`
+            `Failed to start OSI Language Server: ${error.message}`
         );
         console.error('Failed to start server:', error);
     });

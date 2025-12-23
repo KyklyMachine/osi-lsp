@@ -21,6 +21,7 @@ class Symbol:
     symbol_type: SymbolType
     line: int
     column: int
+    file_uri: str = ""
     initialized: bool = False
     used: bool = False
     references: List[tuple[int, int]] = field(default_factory=list)  # (line, column) pairs
@@ -36,6 +37,7 @@ class Label:
     name: str
     line: int
     column: int
+    file_uri: str = ""
     used: bool = False
     references: List[tuple[int, int]] = field(default_factory=list)
 
@@ -45,20 +47,12 @@ class Label:
 
 
 @dataclass
-class Handler:
-    """Handler information"""
-    name: str
-    line: int
-    column: int
-    parameters: List[str] = field(default_factory=list)
-
-
-@dataclass
 class Subroutine:
     """Subroutine information"""
     name: str
     line: int
     column: int
+    file_uri: str = ""
     used: bool = False
     references: List[tuple[int, int]] = field(default_factory=list)
 
@@ -67,17 +61,27 @@ class Subroutine:
         self.references.append((line, column))
 
 
-class SymbolTable:
-    """Symbol table for tracking variables, labels, handlers, etc."""
+@dataclass
+class HandlerSymbol:
+    """Handler information"""
+    name: str
+    file_uri: str = ""
+    parameters: List[str] = field(default_factory=list)
+    line: int = 0
+    column: int = 0
 
-    def __init__(self):
+
+class SymbolTable:
+    """Symbol table for tracking variables, labels, subroutines, etc."""
+
+    def __init__(self, parent: Optional['SymbolTable'] = None):
+        self.parent = parent
         self.symbols: Dict[str, Symbol] = {}
         self.labels: Dict[str, Label] = {}
-        self.handlers: Dict[str, Handler] = {}
         self.subroutines: Dict[str, Subroutine] = {}
-        self.current_handler: Optional[str] = None
+        self.handlers: Dict[str, HandlerSymbol] = {}
 
-    def declare_symbol(self, name: str, symbol_type: SymbolType, line: int, column: int) -> bool:
+    def declare_symbol(self, name: str, symbol_type: SymbolType, line: int, column: int, file_uri: str = "") -> bool:
         """
         Declare a variable.
         Returns True if successful, False if already declared.
@@ -85,12 +89,17 @@ class SymbolTable:
         if name in self.symbols:
             return False
 
-        self.symbols[name] = Symbol(name, symbol_type, line, column)
+        self.symbols[name] = Symbol(name, symbol_type, line, column, file_uri=file_uri)
         return True
 
     def get_symbol(self, name: str) -> Optional[Symbol]:
         """Get symbol information"""
-        return self.symbols.get(name)
+        symbol = self.symbols.get(name)
+        if symbol:
+            return symbol
+        if self.parent:
+            return self.parent.get_symbol(name)
+        return None
 
     def use_symbol(self, name: str, line: int, column: int) -> bool:
         """
@@ -101,14 +110,22 @@ class SymbolTable:
             self.symbols[name].used = True
             self.symbols[name].add_reference(line, column)
             return True
+        
+        if self.parent:
+            return self.parent.use_symbol(name, line, column)
+            
         return False
 
     def initialize_symbol(self, name: str):
         """Mark symbol as initialized"""
         if name in self.symbols:
             self.symbols[name].initialized = True
+            return
 
-    def declare_label(self, name: str, line: int, column: int) -> bool:
+        if self.parent:
+            self.parent.initialize_symbol(name)
+
+    def declare_label(self, name: str, line: int, column: int, file_uri: str = "") -> bool:
         """
         Declare a label.
         Returns True if successful, False if already declared.
@@ -116,7 +133,7 @@ class SymbolTable:
         if name in self.labels:
             return False
 
-        self.labels[name] = Label(name, line, column)
+        self.labels[name] = Label(name, line, column, file_uri=file_uri)
         return True
 
     def get_label(self, name: str) -> Optional[Label]:
@@ -134,16 +151,7 @@ class SymbolTable:
             return True
         return False
 
-    def declare_handler(self, name: str, line: int, column: int, parameters: List[str] = None):
-        """Declare a handler"""
-        self.handlers[name] = Handler(name, line, column, parameters or [])
-        self.current_handler = name
-
-    def get_handler(self, name: str) -> Optional[Handler]:
-        """Get handler information"""
-        return self.handlers.get(name)
-
-    def declare_subroutine(self, name: str, line: int, column: int) -> bool:
+    def declare_subroutine(self, name: str, line: int, column: int, file_uri: str = "") -> bool:
         """
         Declare a subroutine.
         Returns True if successful, False if already declared.
@@ -151,7 +159,7 @@ class SymbolTable:
         if name in self.subroutines:
             return False
 
-        self.subroutines[name] = Subroutine(name, line, column)
+        self.subroutines[name] = Subroutine(name, line, column, file_uri=file_uri)
         return True
 
     def get_subroutine(self, name: str) -> Optional[Subroutine]:
@@ -168,6 +176,32 @@ class SymbolTable:
             self.subroutines[name].add_reference(line, column)
             return True
         return False
+        
+    def declare_handler(self, name: str, file_uri: str, parameters: List[str] = None) -> bool:
+        """Declare a handler (usually from file scan)"""
+        if name in self.handlers:
+            return False
+        self.handlers[name] = HandlerSymbol(name, file_uri, parameters or [])
+        return True
+
+    def get_handler(self, name: str) -> Optional[HandlerSymbol]:
+        """Get handler information"""
+        handler = self.handlers.get(name)
+        if handler:
+            return handler
+        if self.parent:
+            return self.parent.get_handler(name)
+        return None
+
+    def get_all_handlers(self) -> List[HandlerSymbol]:
+        """Get all handlers (local + parent)"""
+        handlers_map = {name: h for name, h in self.handlers.items()}
+        if self.parent:
+            parent_handlers = self.parent.get_all_handlers()
+            for h in parent_handlers:
+                if h.name not in handlers_map:
+                    handlers_map[h.name] = h
+        return list(handlers_map.values())
 
     def get_unused_symbols(self) -> List[Symbol]:
         """Get list of declared but unused symbols"""
@@ -186,16 +220,22 @@ class SymbolTable:
         return [s for s in self.symbols.values() if s.used and not s.initialized]
 
     def get_all_symbols(self) -> List[Symbol]:
-        """Get all symbols"""
-        return list(self.symbols.values())
+        """Get all symbols (local and parent)"""
+        # Start with local symbols
+        symbols_map = {name: symbol for name, symbol in self.symbols.items()}
+        
+        # Add parent symbols if not already present (shadowing)
+        if self.parent:
+            parent_symbols = self.parent.get_all_symbols()
+            for symbol in parent_symbols:
+                if symbol.name not in symbols_map:
+                    symbols_map[symbol.name] = symbol
+                    
+        return list(symbols_map.values())
 
     def get_all_labels(self) -> List[Label]:
         """Get all labels"""
         return list(self.labels.values())
-
-    def get_all_handlers(self) -> List[Handler]:
-        """Get all handlers"""
-        return list(self.handlers.values())
 
     def get_all_subroutines(self) -> List[Subroutine]:
         """Get all subroutines"""
@@ -205,6 +245,5 @@ class SymbolTable:
         """Clear all symbols"""
         self.symbols.clear()
         self.labels.clear()
-        self.handlers.clear()
         self.subroutines.clear()
-        self.current_handler = None
+

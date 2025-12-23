@@ -3,6 +3,7 @@
 from enum import Enum, auto
 from dataclasses import dataclass
 from typing import List, Optional
+from .errors import ProtocolError
 
 
 class TokenType(Enum):
@@ -117,7 +118,7 @@ class Lexer:
 
     def error(self, msg: str):
         """Raise lexer error"""
-        raise Exception(f"Lexer error at {self.line}:{self.column}: {msg}")
+        raise ProtocolError(f"Lexer error: {msg}", self.line, self.column)
 
     def advance(self):
         """Move to the next character"""
@@ -214,9 +215,10 @@ class Lexer:
         start_column = self.column
         result = ''
 
-        # Identifiers can contain letters, digits, underscores, dots, and hyphens
+        # Identifiers can contain letters, digits, underscores, and dots
+        # Hyphen '-' is removed to allow it as an operator without spaces
         while self.current_char and (self.current_char.isalnum() or
-                                    self.current_char in '_.-'):
+                                    self.current_char in '_.'):
             result += self.current_char
             self.advance()
 

@@ -1,18 +1,20 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="protocol-language-server",
-    version="0.1.0",
-    description="Language Server for Protocol Language",
+    name="osi-language-server",
+    version="1.0.0",
+    description="Language Server for OSI Protocol Language",
     packages=find_packages(),
     install_requires=[
-        "pygls>=1.3.0",
+        "pygls>=1.2.0",
         "lsprotocol>=2023.0.0",
+        "dataclasses-json>=0.6.0",
+        "typing-extensions>=4.8.0"
     ],
     entry_points={
         "console_scripts": [
-            "protocol-ls=protocol_ls.server:main",
+            "osi-ls=osi_lsp.server:main",
         ],
     },
-    python_requires=">=3.8",
+    python_requires=">=3.10",
 )

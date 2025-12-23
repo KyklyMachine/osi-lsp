@@ -11,8 +11,9 @@ class SemanticAnalyzer(ASTVisitor):
     and performs type checking.
     """
 
-    def __init__(self, symbol_table: SymbolTable):
+    def __init__(self, symbol_table: SymbolTable, file_uri: str = ""):
         self.symbol_table = symbol_table
+        self.file_uri = file_uri
         self.errors: List[str] = []
         self.warnings: List[str] = []
 
@@ -30,15 +31,30 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_program(self, node: Program):
         """Visit program node"""
-        for handler in node.handlers:
-            handler.accept(self)
-
-    def visit_handler(self, node: Handler):
-        """Visit handler node"""
-        self.symbol_table.declare_handler(node.name, node.line, node.column)
-
+        # First pass: register all labels and subroutines
         for statement in node.statements:
+            if isinstance(statement, LabelStatement):
+                if not self.symbol_table.declare_label(statement.name, statement.line, statement.column, file_uri=self.file_uri):
+                    self.add_error(statement.line, statement.column, f"Label '{statement.name}' is already defined")
+            elif isinstance(statement, SubstartStatement):
+                if not self.symbol_table.declare_subroutine(statement.name, statement.line, statement.column, file_uri=self.file_uri):
+                    self.add_error(statement.line, statement.column, f"Subroutine '{statement.name}' is already defined")
+
+        # Second pass: analyze all statements
+        for statement in node.statements:
+            # Skip declarations of labels/subs in second pass to avoid re-declaration errors
+            # (SymbolTable.declare_* returns False if already exists)
+            # Actually, declare_* logic in visit_label/visit_substart would trigger "already defined" again.
+            # So we should modify visit_label and visit_substart to NOT re-declare or check existence without error if it's the same definition.
+            # OR simpler: Don't call accept on Label/Substart in the loop if we handled them?
+            # But we want to visit contents of Substart.
+            # Better approach:
+            # Remove declare_label from visit_label and declare_subroutine from visit_substart
+            # and rely on the pre-pass in visit_program.
             statement.accept(self)
+
+    # Removed visit_handler
+
 
     def visit_declare(self, node: DeclareStatement):
         """Visit declaration"""
@@ -52,7 +68,7 @@ class SemanticAnalyzer(ASTVisitor):
 
         symbol_type = type_map.get(node.var_type, SymbolType.UNKNOWN)
 
-        if not self.symbol_table.declare_symbol(node.name, symbol_type, node.line, node.column):
+        if not self.symbol_table.declare_symbol(node.name, symbol_type, node.line, node.column, file_uri=self.file_uri):
             self.add_error(node.line, node.column, f"Variable '{node.name}' is already declared")
 
     def visit_varset(self, node: VarsetStatement):
@@ -187,8 +203,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_label(self, node: LabelStatement):
         """Visit label definition"""
-        if not self.symbol_table.declare_label(node.name, node.line, node.column):
-            self.add_error(node.line, node.column, f"Label '{node.name}' is already defined")
+        pass  # Handled in pre-pass
 
     def visit_out(self, node: OutStatement):
         """Visit out statement"""
@@ -201,8 +216,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_substart(self, node: SubstartStatement):
         """Visit substart statement"""
-        if not self.symbol_table.declare_subroutine(node.name, node.line, node.column):
-            self.add_error(node.line, node.column, f"Subroutine '{node.name}' is already defined")
+        # Declaration handled in pre-pass
 
         for statement in node.statements:
             statement.accept(self)
@@ -219,6 +233,10 @@ class SemanticAnalyzer(ASTVisitor):
 
         node.start.accept(self)
         node.length.accept(self)
+
+    def visit_expression_statement(self, node: ExpressionStatement):
+        """Visit expression statement"""
+        node.expression.accept(self)
 
     def visit_number(self, node: NumberLiteral):
         """Visit number literal"""

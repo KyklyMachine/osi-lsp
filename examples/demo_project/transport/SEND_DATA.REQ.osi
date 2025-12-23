@@ -1,0 +1,33 @@
+; ==========================================================
+; SEND_DATA.REQ.osi
+; Обработчик запроса на отправку данных
+; Параметры: data (buffer), length (integer)
+; ==========================================================
+
+SEND_DATA.REQ:
+    ; Проверяем состояние соединения (1 = подключено)
+    $state != 1 if not_connected
+
+    ; Инкремент счетчика последовательности
+    $tx_sequence + 1 varset tx_sequence
+    
+    ; Формируем пакет: [Seq (2 bytes)] [Len (2 bytes)] [Data (length bytes)]
+    ; Общий размер = length + 4
+    tx_buffer bufferit $length + 4 $tx_sequence 2 $length 2 $data $length
+    
+    ; Отправляем пакет на уровень ниже (сетевой уровень)
+    N_DATA.REQ eventdown payload $tx_buffer length $length + 4
+    
+    ; Запускаем таймер повторной отправки (500 мс)
+    RETRY_TIMER timer retrans_timer 500 seq_num $tx_sequence
+    
+    out "Data sent with seq: " $tx_sequence
+    goto end
+
+not_connected:
+    out "Error: Cannot send data, no connection"
+    ; Генерируем ошибку вверх
+    ERROR.IND generateup code 1 message "Not connected"
+
+end:
+    return

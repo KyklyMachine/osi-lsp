@@ -1,9 +1,9 @@
 {
-  "name": "protocol-language",
-  "displayName": "Protocol Language Support",
-  "description": "Language support for Protocol Language - a specialized language for network protocol description",
-  "version": "0.1.0",
-  "publisher": "protocol-lang",
+  "name": "osi-language",
+  "displayName": "OSI Protocol Language Support",
+  "description": "Language support for OSI Protocol Language",
+  "version": "1.0.0",
+  "publisher": "osi-lang",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -11,46 +11,46 @@
     "Programming Languages"
   ],
   "keywords": [
+    "osi",
     "protocol",
     "network",
     "language server"
   ],
   "activationEvents": [
-    "onLanguage:protocol"
+    "onLanguage:osi"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "protocol",
+        "id": "osi",
         "aliases": [
-          "Protocol",
-          "protocol"
+          "OSI",
+          "osi"
         ],
         "extensions": [
-          ".protocol",
-          ".prot"
+          ".osi"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "protocol",
-        "scopeName": "source.protocol",
-        "path": "../syntaxes/protocol.tmLanguage.json"
+        "language": "osi",
+        "scopeName": "source.osi",
+        "path": "./syntaxes/osi.tmLanguage.json"
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "Protocol Language Server",
+      "title": "OSI Language Server",
       "properties": {
-        "protocolLanguageServer.pythonPath": {
+        "osiLanguageServer.pythonPath": {
           "type": "string",
           "default": "python",
           "description": "Path to Python executable"
         },
-        "protocolLanguageServer.trace.server": {
+        "osiLanguageServer.trace.server": {
           "scope": "window",
           "type": "string",
           "enum": [
@@ -71,14 +71,14 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
-    "vscode-languageclient": "^8.1.0"
+    "vscode-languageclient": "^9.0.0"
   },
   "devDependencies": {
-    "@types/node": "^18.0.0",
+    "@types/node": "^18.17.0",
     "@types/vscode": "^1.75.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
-    "typescript": "^5.0.0"
+    "@typescript-eslint/eslint-plugin": "^6.4.0",
+    "@typescript-eslint/parser": "^6.4.0",
+    "eslint": "^8.47.0",
+    "typescript": "^5.1.0"
   }
 }

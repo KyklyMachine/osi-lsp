@@ -1,7 +1,7 @@
 """AST Node definitions for Protocol Language"""
 
 from dataclasses import dataclass
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Tuple
 from abc import ABC, abstractmethod
 
 
@@ -16,23 +16,11 @@ class ASTNode(ABC):
 
 @dataclass
 class Program(ASTNode):
-    """Root of the program - contains all handlers"""
-    handlers: List['Handler']
-
-    def accept(self, visitor):
-        return visitor.visit_program(self)
-
-
-@dataclass
-class Handler(ASTNode):
-    """Event handler block (## NAME)"""
-    name: str
-    line: int
-    column: int
+    """Root of the program - contains all statements"""
     statements: List['Statement']
 
     def accept(self, visitor):
-        return visitor.visit_handler(self)
+        return visitor.visit_program(self)
 
 
 # === Statements ===
@@ -72,7 +60,7 @@ class BufferitStatement(Statement):
     """Create buffer: buffer bufferit length field1 len1 ..."""
     buffer_name: str
     total_length: 'Expression'
-    fields: List[tuple['Expression', 'Expression']]  # (value, length) pairs
+    fields: List[Tuple['Expression', 'Expression']]  # (value, length) pairs
     line: int
     column: int
 
@@ -84,7 +72,7 @@ class BufferitStatement(Statement):
 class UnbufferitStatement(Statement):
     """Parse buffer: unbufferit buffer var1 len1 ..."""
     buffer_name: str
-    fields: List[tuple[str, 'Expression']]  # (variable, length) pairs
+    fields: List[Tuple[str, 'Expression']]  # (variable, length) pairs
     line: int
     column: int
 
@@ -277,6 +265,17 @@ class DeleteStatement(Statement):
         return visitor.visit_delete(self)
 
 
+@dataclass
+class ExpressionStatement(Statement):
+    """Statement consisting of a single expression (e.g. function call)"""
+    expression: 'Expression'
+    line: int
+    column: int
+
+    def accept(self, visitor):
+        return visitor.visit_expression_statement(self)
+
+
 # === Expressions ===
 
 class Expression(ASTNode):
@@ -361,9 +360,6 @@ class ASTVisitor(ABC):
     def visit_program(self, node: Program):
         pass
 
-    def visit_handler(self, node: Handler):
-        pass
-
     def visit_declare(self, node: DeclareStatement):
         pass
 
@@ -422,6 +418,9 @@ class ASTVisitor(ABC):
         pass
 
     def visit_delete(self, node: DeleteStatement):
+        pass
+
+    def visit_expression_statement(self, node: ExpressionStatement):
         pass
 
     def visit_number(self, node: NumberLiteral):
