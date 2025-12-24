@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from urllib.parse import unquote, urlparse
 from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
@@ -71,31 +71,34 @@ class OSILanguageServer(LanguageServer):
         symbol_table = SymbolTable(parent=context.symbol_table)
         return symbol_table
 
-    def parse_document(self, document: Document) -> tuple[Optional[any], SymbolTable]:
-        """Parse a document and return AST and symbol table"""
+    def parse_document(self, document: Document) -> tuple[Optional[any], SymbolTable, List[ProtocolError]]:
+        """Parse a document and return AST, symbol table, and errors"""
+        errors = []
+        ast = None
+        symbol_table = self.get_symbol_table(document.uri)
+
         try:
-            symbol_table = self.get_symbol_table(document.uri)
-            
             # Tokenize
             lexer = Lexer(document.source)
             tokens = lexer.tokenize()
 
             # Parse
             parser = Parser(tokens)
-            ast = parser.parse()
+            ast, parse_errors = parser.parse()
+            errors.extend(parse_errors)
 
             # Store AST
             self.document_asts[document.uri] = ast
 
-            return ast, symbol_table
-
         except ProtocolError as e:
-            # Re-raise to be handled by caller
-            raise e
+            # Lexer error or unrecoverable parser error
+            errors.append(e)
         except Exception as e:
             logger.error(f"Error parsing document {document.uri}: {e}", exc_info=True)
             # Return empty symbol table if parse failed completely
-            return None, SymbolTable()
+            return None, SymbolTable(), []
+
+        return ast, symbol_table, errors
 
     def validate_document(self, uri: str, document: Document):
         """Validate document and publish diagnostics"""
@@ -107,27 +110,30 @@ class OSILanguageServer(LanguageServer):
                 
             context = self.project.get_directory_context(file_path)
             
-            ast, symbol_table = self.parse_document(document)
+            ast, symbol_table, parse_errors = self.parse_document(document)
 
-            # Validate
-            validator = Validator(symbol_table)
-            diagnostics = validator.validate(ast, uri, context.valid_init)
+            diagnostics = []
+
+            # Add parser/lexer errors
+            for e in parse_errors:
+                diagnostics.append(Diagnostic(
+                    range=Range(
+                        start=Position(line=e.line, character=e.column),
+                        end=Position(line=e.line, character=e.column + 1)
+                    ),
+                    message=e.message,
+                    severity=DiagnosticSeverity.Error,
+                    source="osi-ls"
+                ))
+
+            # Validate semantics (even if there are parser errors, we try to validate what we parsed)
+            if ast:
+                validator = Validator(symbol_table)
+                semantic_diagnostics = validator.validate(ast, uri, context.valid_init)
+                diagnostics.extend(semantic_diagnostics)
 
             # Publish diagnostics
             self.publish_diagnostics(uri, diagnostics)
-
-        except ProtocolError as e:
-            # Create diagnostic for syntax error
-            diagnostic = Diagnostic(
-                range=Range(
-                    start=Position(line=e.line, character=e.column),
-                    end=Position(line=e.line, character=e.column + 1)
-                ),
-                message=e.message,
-                severity=DiagnosticSeverity.Error,
-                source="osi-ls"
-            )
-            self.publish_diagnostics(uri, [diagnostic])
 
         except Exception as e:
             logger.error(f"Error validating document {uri}: {e}", exc_info=True)
@@ -179,17 +185,14 @@ async def completions(ls: OSILanguageServer, params: CompletionParams) -> Comple
         document = ls.workspace.get_document(params.text_document.uri)
         
         try:
-            ast, symbol_table = ls.parse_document(document)
+            ast, symbol_table, _ = ls.parse_document(document)
             
             # Populate symbol table with semantic analyzer
             if ast:
                 analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
                 analyzer.analyze(ast)
         except Exception:
-             # If parsing fails, we might still want to try completion on partial table
-             # But here we just get a fresh one (with parent) if parse_document fails early.
-             # If parse_document raises ProtocolError, we caught it?
-             # Wait, parse_document raises ProtocolError. We need to catch it here.
+             # Fallback
              symbol_table = ls.get_symbol_table(params.text_document.uri)
 
         # Get current line
@@ -212,7 +215,7 @@ async def hover(ls: OSILanguageServer, params: HoverParams) -> Optional[Hover]:
     try:
         document = ls.workspace.get_document(params.text_document.uri)
         try:
-            ast, symbol_table = ls.parse_document(document)
+            ast, symbol_table, _ = ls.parse_document(document)
             if ast:
                 analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
                 analyzer.analyze(ast)
@@ -243,7 +246,7 @@ async def definition(ls: OSILanguageServer, params: DefinitionParams) -> Optiona
     try:
         document = ls.workspace.get_document(params.text_document.uri)
         try:
-            ast, symbol_table = ls.parse_document(document)
+            ast, symbol_table, _ = ls.parse_document(document)
             if ast:
                 analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
                 analyzer.analyze(ast)
@@ -274,7 +277,7 @@ async def references(ls: OSILanguageServer, params: ReferenceParams) -> Optional
     try:
         document = ls.workspace.get_document(params.text_document.uri)
         try:
-            ast, symbol_table = ls.parse_document(document)
+            ast, symbol_table, _ = ls.parse_document(document)
             if ast:
                 analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
                 analyzer.analyze(ast)

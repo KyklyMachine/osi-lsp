@@ -1,8 +1,8 @@
 """Symbol table for Protocol Language"""
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, List
 from enum import Enum
+from typing import Dict, List, Optional
 
 
 class SymbolType(Enum):

@@ -46,7 +46,9 @@ class OSIProject:
             for f in osi_files:
                 name = os.path.splitext(os.path.basename(f))[0]
                 if name != "INIT":
-                    context.symbol_table.declare_handler(name, f)
+                    # Convert file path to URI
+                    uri = Path(f).resolve().as_uri()
+                    context.symbol_table.declare_handler(name, uri)
         except Exception as e:
             logger.error(f"Error scanning handlers in {dir_path}: {e}")
 
@@ -62,13 +64,21 @@ class OSIProject:
                 lexer = Lexer(text)
                 tokens = lexer.tokenize()
                 parser = Parser(tokens)
-                ast = parser.parse()
+                ast, _ = parser.parse()
                 
                 # Build Symbol Table using SemanticAnalyzer
-                init_uri = Path(init_path).resolve().as_uri()
-                analyzer = SemanticAnalyzer(context.symbol_table, file_uri=init_uri)
-                analyzer.visit_program(ast)
-                context.valid_init = True
+                if ast:
+                    init_uri = Path(init_path).resolve().as_uri()
+                    analyzer = SemanticAnalyzer(context.symbol_table, file_uri=init_uri)
+                    analyzer.visit_program(ast)
+                    
+                    # Mark all global variables as initialized
+                    for symbol in context.symbol_table.symbols.values():
+                        symbol.initialized = True
+                        
+                    context.valid_init = True
+                else:
+                    context.valid_init = False
                 
             except Exception as e:
                 logger.error(f"Error loading INIT.osi at {init_path}: {e}")

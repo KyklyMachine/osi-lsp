@@ -92,7 +92,7 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.osi",
+          "name": "support.function.osi",
           "match": "\\b(bufferit|unbufferit|calccrc|timer|untimer|queue|clearqueue|dequeue|peek|qcount|generateup|eventdown)\\b"
         },
         {

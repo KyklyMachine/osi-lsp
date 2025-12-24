@@ -1,6 +1,5 @@
 """Semantic analyzer for Protocol Language"""
 
-from typing import Optional
 from ..parser.ast_nodes import *
 from .symbol_table import SymbolTable, SymbolType
 
@@ -86,7 +85,7 @@ class SemanticAnalyzer(ASTVisitor):
 
             # Type checking (simplified - a full implementation would be more complex)
             if expr_type != SymbolType.UNKNOWN and symbol.symbol_type != expr_type:
-                self.add_warning(
+                self.add_error(
                     node.line, node.column,
                     f"Type mismatch: assigning {expr_type.value} to {symbol.symbol_type.value}"
                 )

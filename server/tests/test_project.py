@@ -54,6 +54,21 @@ def test_project_load_init(temp_project):
     assert sym is not None
     assert sym.symbol_type == SymbolType.INTEGER
 
+def test_project_init_symbols_initialized(temp_project):
+    """Test that symbols from INIT.osi are marked as initialized"""
+    project = OSIProject()
+    transport_dir = os.path.join(temp_project, "transport")
+    handler_path = os.path.join(transport_dir, "HANDLER.osi")
+    
+    context = project.get_directory_context(handler_path)
+    
+    # Check initialized status
+    global_sym = context.symbol_table.get_symbol("global_var")
+    buffer_sym = context.symbol_table.get_symbol("buffer_var")
+    
+    assert global_sym.initialized is True
+    assert buffer_sym.initialized is True
+
 def test_project_scan_handlers(temp_project):
     project = OSIProject()
     transport_dir = os.path.join(temp_project, "transport")

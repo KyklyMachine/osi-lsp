@@ -28,6 +28,16 @@ class TestCompletion:
         assert "varset" in labels
         assert "if" in labels
 
+    def test_complete_varset_insert_text(self, symbol_table):
+        provider = CompletionProvider(symbol_table)
+        completions = provider.get_completions("", 0)
+        
+        # Find varset item
+        varset_item = next(i for i in completions.items if i.label == "varset")
+        
+        # Verify insert_text is just "varset" and NOT "expression varset $variable"
+        assert varset_item.insert_text == "varset"
+
     def test_complete_variables(self, symbol_table):
         provider = CompletionProvider(symbol_table)
         completions = provider.get_completions("$my", 3)
@@ -44,8 +54,15 @@ class TestCompletion:
         
         items = [i for i in completions.items if i.kind == CompletionItemKind.TypeParameter]
         labels = [i.label for i in items]
+        insert_texts = [i.insert_text for i in items]
+        
         assert "integer" in labels
         assert "buffer" in labels
+        
+        # Verify insert_text matches label (not the full declaration pattern)
+        assert "integer" in insert_texts
+        assert "buffer" in insert_texts
+        assert "name declare integer" not in insert_texts
 
 class TestHover:
     def test_hover_variable(self, symbol_table):

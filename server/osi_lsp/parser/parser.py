@@ -45,16 +45,30 @@ class Parser:
         self.advance()
         return token
 
-    def parse(self) -> Program:
-        """Parse the entire program"""
+    def parse(self) -> tuple[Program, List[ProtocolError]]:
+        """Parse the entire program. Returns AST and list of errors."""
         statements = []
+        errors = []
 
         while self.current_token.type != TokenType.EOF:
-            stmt = self.parse_statement()
-            if stmt:
-                statements.append(stmt)
+            try:
+                stmt = self.parse_statement()
+                if stmt:
+                    statements.append(stmt)
+            except ProtocolError as e:
+                errors.append(e)
+                # Recover: skip to next newline or EOF
+                self.synchronize()
 
-        return Program(statements=statements)
+        return Program(statements=statements), errors
+
+    def synchronize(self):
+        """Skip tokens until we find a statement boundary"""
+        while self.current_token.type != TokenType.EOF:
+            if self.current_token.type == TokenType.NEWLINE:
+                self.advance()
+                return
+            self.advance()
 
     def parse_statement(self) -> Optional[Statement]:
         """Parse a single statement"""
@@ -130,7 +144,10 @@ class Parser:
 
         # Expression-based statements (expression followed by operation)
         if token.type in (TokenType.IDENTIFIER, TokenType.VARIABLE, TokenType.NUMBER,
-                         TokenType.STRING_LITERAL, TokenType.LPAREN):
+                         TokenType.STRING_LITERAL, TokenType.LPAREN, TokenType.CHAR_CODE,
+                         TokenType.SIZEOF, TokenType.COPY, TokenType.POS,
+                         TokenType.DEQUEUE, TokenType.PEEK, TokenType.QCOUNT,
+                         TokenType.LOCGUIDE, TokenType.CURRENTSYSTEMNAME):
             return self.parse_expression_statement()
 
         # Unknown statement
