@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 
 class SymbolType(Enum):
@@ -24,11 +24,11 @@ class Symbol:
     file_uri: str = ""
     initialized: bool = False
     used: bool = False
-    references: List[tuple[int, int]] = field(default_factory=list)  # (line, column) pairs
+    references: List[tuple[str, int, int]] = field(default_factory=list)  # (uri, line, column) pairs
 
-    def add_reference(self, line: int, column: int):
+    def add_reference(self, uri: str, line: int, column: int):
         """Add a reference to this symbol"""
-        self.references.append((line, column))
+        self.references.append((uri, line, column))
 
 
 @dataclass
@@ -39,11 +39,11 @@ class Label:
     column: int
     file_uri: str = ""
     used: bool = False
-    references: List[tuple[int, int]] = field(default_factory=list)
+    references: List[tuple[str, int, int]] = field(default_factory=list)  # (uri, line, column)
 
-    def add_reference(self, line: int, column: int):
+    def add_reference(self, uri: str, line: int, column: int):
         """Add a reference to this label"""
-        self.references.append((line, column))
+        self.references.append((uri, line, column))
 
 
 @dataclass
@@ -54,11 +54,11 @@ class Subroutine:
     column: int
     file_uri: str = ""
     used: bool = False
-    references: List[tuple[int, int]] = field(default_factory=list)
+    references: List[tuple[str, int, int]] = field(default_factory=list)  # (uri, line, column)
 
-    def add_reference(self, line: int, column: int):
+    def add_reference(self, uri: str, line: int, column: int):
         """Add a reference to this subroutine"""
-        self.references.append((line, column))
+        self.references.append((uri, line, column))
 
 
 @dataclass
@@ -80,6 +80,9 @@ class SymbolTable:
         self.labels: Dict[str, Label] = {}
         self.subroutines: Dict[str, Subroutine] = {}
         self.handlers: Dict[str, HandlerSymbol] = {}
+        # Track references to parent symbols when update_parent is False
+        # name -> list of (uri, line, column)
+        self.external_references: Dict[str, List[tuple[str, int, int]]] = {}
 
     def declare_symbol(self, name: str, symbol_type: SymbolType, line: int, column: int, file_uri: str = "") -> bool:
         """
@@ -101,18 +104,50 @@ class SymbolTable:
             return self.parent.get_symbol(name)
         return None
 
-    def use_symbol(self, name: str, line: int, column: int) -> bool:
+    def use_symbol(self, name: str, line: int, column: int, file_uri: str = "", update_parent: bool = True) -> bool:
         """
         Mark symbol as used and add reference.
         Returns True if symbol exists, False otherwise.
         """
         if name in self.symbols:
             self.symbols[name].used = True
-            self.symbols[name].add_reference(line, column)
+            self.symbols[name].add_reference(file_uri, line, column)
             return True
         
         if self.parent:
-            return self.parent.use_symbol(name, line, column)
+            if update_parent:
+                return self.parent.use_symbol(name, line, column, file_uri, update_parent=True)
+            else:
+                sym = self.parent.get_symbol(name)
+                if sym:
+                    if name not in self.external_references:
+                        self.external_references[name] = []
+                    self.external_references[name].append((file_uri, line, column))
+                    return True
+                return False
+            
+        return False
+
+    def reference_symbol(self, name: str, line: int, column: int, file_uri: str = "", update_parent: bool = True) -> bool:
+        """
+        Add reference to symbol without marking as used (for assignments).
+        Returns True if symbol exists.
+        """
+        if name in self.symbols:
+            self.symbols[name].add_reference(file_uri, line, column)
+            return True
+        
+        if self.parent:
+            if update_parent:
+                return self.parent.reference_symbol(name, line, column, file_uri, update_parent=True)
+            else:
+                sym = self.parent.get_symbol(name)
+                if sym:
+                    if name not in self.external_references:
+                        self.external_references[name] = []
+                    self.external_references[name].append((file_uri, line, column))
+                    return True
+                return False
             
         return False
 
@@ -138,17 +173,35 @@ class SymbolTable:
 
     def get_label(self, name: str) -> Optional[Label]:
         """Get label information"""
-        return self.labels.get(name)
+        label = self.labels.get(name)
+        if label:
+            return label
+        if self.parent:
+            return self.parent.get_label(name)
+        return None
 
-    def use_label(self, name: str, line: int, column: int) -> bool:
+    def use_label(self, name: str, line: int, column: int, file_uri: str = "", update_parent: bool = True) -> bool:
         """
         Mark label as used and add reference.
         Returns True if label exists, False otherwise.
         """
         if name in self.labels:
             self.labels[name].used = True
-            self.labels[name].add_reference(line, column)
+            self.labels[name].add_reference(file_uri, line, column)
             return True
+        
+        if self.parent:
+            if update_parent:
+                return self.parent.use_label(name, line, column, file_uri, update_parent=True)
+            else:
+                lbl = self.parent.get_label(name)
+                if lbl:
+                    if name not in self.external_references:
+                        self.external_references[name] = []
+                    self.external_references[name].append((file_uri, line, column))
+                    return True
+                return False
+            
         return False
 
     def declare_subroutine(self, name: str, line: int, column: int, file_uri: str = "") -> bool:
@@ -164,17 +217,35 @@ class SymbolTable:
 
     def get_subroutine(self, name: str) -> Optional[Subroutine]:
         """Get subroutine information"""
-        return self.subroutines.get(name)
+        sub = self.subroutines.get(name)
+        if sub:
+            return sub
+        if self.parent:
+            return self.parent.get_subroutine(name)
+        return None
 
-    def use_subroutine(self, name: str, line: int, column: int) -> bool:
+    def use_subroutine(self, name: str, line: int, column: int, file_uri: str = "", update_parent: bool = True) -> bool:
         """
         Mark subroutine as used and add reference.
         Returns True if subroutine exists, False otherwise.
         """
         if name in self.subroutines:
             self.subroutines[name].used = True
-            self.subroutines[name].add_reference(line, column)
+            self.subroutines[name].add_reference(file_uri, line, column)
             return True
+        
+        if self.parent:
+            if update_parent:
+                return self.parent.use_subroutine(name, line, column, file_uri, update_parent=True)
+            else:
+                sub = self.parent.get_subroutine(name)
+                if sub:
+                    if name not in self.external_references:
+                        self.external_references[name] = []
+                    self.external_references[name].append((file_uri, line, column))
+                    return True
+                return False
+
         return False
         
     def declare_handler(self, name: str, file_uri: str, parameters: List[str] = None) -> bool:
@@ -246,4 +317,13 @@ class SymbolTable:
         self.symbols.clear()
         self.labels.clear()
         self.subroutines.clear()
+        self.external_references.clear()
 
+    def remove_references(self, uri: str):
+        """Remove all references from a specific URI (used before re-indexing)"""
+        for sym in self.symbols.values():
+            sym.references = [r for r in sym.references if r[0] != uri]
+        for lbl in self.labels.values():
+            lbl.references = [r for r in lbl.references if r[0] != uri]
+        for sub in self.subroutines.values():
+            sub.references = [r for r in sub.references if r[0] != uri]

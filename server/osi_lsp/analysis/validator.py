@@ -53,6 +53,11 @@ class Validator:
         # Structure checks
         self._validate_structure(ast, is_init, filename)
 
+        # Clear references from parent symbol table (Global Scope) for this URI
+        # This prevents duplicate references when re-analyzing the same file
+        if self.symbol_table.parent:
+            self.symbol_table.parent.remove_references(file_uri)
+
         # Run semantic analyzer
         analyzer = SemanticAnalyzer(self.symbol_table, file_uri=file_uri)
         analyzer.analyze(ast)

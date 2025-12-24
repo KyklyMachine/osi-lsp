@@ -28,14 +28,14 @@ class OSIProject:
             self._load_init_file(dir_path)
         return self.directories[dir_path]
 
-    def reload_init_file(self, dir_path: str):
+    def reload_init_file(self, dir_path: str, content: str = None):
         """Reload INIT.osi for a directory"""
         if dir_path in self.directories:
             # Clear existing table
             self.directories[dir_path].symbol_table.clear()
-            self._load_init_file(dir_path)
+            self._load_init_file(dir_path, content)
 
-    def _load_init_file(self, dir_path: str):
+    def _load_init_file(self, dir_path: str, content: str = None):
         """Load and parse INIT.osi if it exists"""
         context = self.directories[dir_path]
         
@@ -54,11 +54,13 @@ class OSIProject:
 
         init_path = os.path.abspath(os.path.join(dir_path, "INIT.osi"))
         
-        if os.path.exists(init_path):
+        if os.path.exists(init_path) or content is not None:
             context.init_file = init_path
             try:
-                with open(init_path, 'r', encoding='utf-8') as f:
-                    text = f.read()
+                text = content
+                if text is None:
+                    with open(init_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
                 
                 # Parse
                 lexer = Lexer(text)

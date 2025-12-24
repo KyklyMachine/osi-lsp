@@ -12,6 +12,9 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_DEFINITION,
     TEXT_DOCUMENT_REFERENCES,
+    TEXT_DOCUMENT_DOCUMENT_SYMBOL,
+    TEXT_DOCUMENT_SIGNATURE_HELP,
+    TEXT_DOCUMENT_RENAME,
     CompletionParams,
     DidChangeTextDocumentParams,
     DidOpenTextDocumentParams,
@@ -19,6 +22,9 @@ from lsprotocol.types import (
     HoverParams,
     DefinitionParams,
     ReferenceParams,
+    DocumentSymbolParams,
+    SignatureHelpParams,
+    RenameParams,
     CompletionList,
     Hover,
     Location,
@@ -26,6 +32,10 @@ from lsprotocol.types import (
     DiagnosticSeverity,
     Range,
     Position,
+    DocumentSymbol,
+    SignatureHelp,
+    WorkspaceEdit,
+    SignatureHelpOptions,
 )
 from pygls.server import LanguageServer
 from pygls.workspace import Document
@@ -39,6 +49,9 @@ from .analysis.semantic_analyzer import SemanticAnalyzer
 from .providers.completion import CompletionProvider
 from .providers.hover import HoverProvider
 from .providers.definition import DefinitionProvider
+from .providers.document_symbol import DocumentSymbolProvider
+from .providers.signature_help import SignatureHelpProvider
+from .providers.rename import RenameProvider
 from .workspace.project import OSIProject
 
 # Configure logging
@@ -163,7 +176,18 @@ async def did_change(ls: OSILanguageServer, params: DidChangeTextDocumentParams)
         if os.name == 'nt' and path.startswith('/'):
             path = path[1:]
         dir_path = os.path.dirname(path)
-        ls.project.reload_init_file(dir_path)
+        ls.project.reload_init_file(dir_path, document.source)
+        
+        # Trigger re-validation for all other open documents in this directory
+        for doc_uri, doc in ls.workspace.documents.items():
+            # Check if document belongs to the same directory
+            doc_path = unquote(urlparse(doc_uri).path)
+            if os.name == 'nt' and doc_path.startswith('/'):
+                doc_path = doc_path[1:]
+            
+            # Use os.path.dirname to get the directory
+            if os.path.dirname(doc_path) == dir_path and doc_uri != params.text_document.uri:
+                ls.validate_document(doc_uri, doc)
         
     ls.validate_document(params.text_document.uri, document)
 
@@ -189,7 +213,7 @@ async def completions(ls: OSILanguageServer, params: CompletionParams) -> Comple
             
             # Populate symbol table with semantic analyzer
             if ast:
-                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
+                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri, update_global_refs=False)
                 analyzer.analyze(ast)
         except Exception:
              # Fallback
@@ -217,7 +241,7 @@ async def hover(ls: OSILanguageServer, params: HoverParams) -> Optional[Hover]:
         try:
             ast, symbol_table, _ = ls.parse_document(document)
             if ast:
-                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
+                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri, update_global_refs=False)
                 analyzer.analyze(ast)
         except Exception:
              symbol_table = ls.get_symbol_table(params.text_document.uri)
@@ -248,7 +272,7 @@ async def definition(ls: OSILanguageServer, params: DefinitionParams) -> Optiona
         try:
             ast, symbol_table, _ = ls.parse_document(document)
             if ast:
-                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
+                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri, update_global_refs=False)
                 analyzer.analyze(ast)
         except Exception:
              symbol_table = ls.get_symbol_table(params.text_document.uri)
@@ -279,7 +303,7 @@ async def references(ls: OSILanguageServer, params: ReferenceParams) -> Optional
         try:
             ast, symbol_table, _ = ls.parse_document(document)
             if ast:
-                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri)
+                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri, update_global_refs=False)
                 analyzer.analyze(ast)
         except Exception:
              symbol_table = ls.get_symbol_table(params.text_document.uri)
@@ -297,6 +321,76 @@ async def references(ls: OSILanguageServer, params: ReferenceParams) -> Optional
 
     except Exception as e:
         logger.error(f"Error providing references: {e}", exc_info=True)
+        return None
+
+
+@server.feature(TEXT_DOCUMENT_DOCUMENT_SYMBOL)
+async def document_symbol(ls: OSILanguageServer, params: DocumentSymbolParams) -> Optional[List[DocumentSymbol]]:
+    """Provide document symbols"""
+    logger.info(f"Document symbols requested for {params.text_document.uri}")
+
+    try:
+        document = ls.workspace.get_document(params.text_document.uri)
+        # Parse document to get AST
+        ast, _, _ = ls.parse_document(document)
+
+        if not ast:
+            return None
+
+        provider = DocumentSymbolProvider()
+        return provider.get_symbols(ast)
+
+    except Exception as e:
+        logger.error(f"Error providing document symbols: {e}", exc_info=True)
+        return None
+
+
+@server.feature(TEXT_DOCUMENT_SIGNATURE_HELP, SignatureHelpOptions(trigger_characters=['(', ',', ' ']))
+async def signature_help(ls: OSILanguageServer, params: SignatureHelpParams) -> Optional[SignatureHelp]:
+    """Provide signature help"""
+    logger.info(f"Signature help requested at {params.position}")
+
+    try:
+        document = ls.workspace.get_document(params.text_document.uri)
+        line = document.lines[params.position.line] if params.position.line < len(document.lines) else ""
+        
+        provider = SignatureHelpProvider()
+        return provider.get_signature_help(line, params.position.character)
+        
+    except Exception as e:
+        logger.error(f"Error providing signature help: {e}", exc_info=True)
+        return None
+
+
+@server.feature(TEXT_DOCUMENT_RENAME)
+async def rename(ls: OSILanguageServer, params: RenameParams) -> Optional[WorkspaceEdit]:
+    """Provide rename refactoring"""
+    logger.info(f"Rename requested at {params.position} with new name {params.new_name}")
+
+    try:
+        document = ls.workspace.get_document(params.text_document.uri)
+        
+        # Ensure latest state
+        try:
+            ast, symbol_table, _ = ls.parse_document(document)
+            if ast:
+                analyzer = SemanticAnalyzer(symbol_table, file_uri=params.text_document.uri, update_global_refs=False)
+                analyzer.analyze(ast)
+        except Exception:
+             symbol_table = ls.get_symbol_table(params.text_document.uri)
+
+        # Get word at position
+        line = document.lines[params.position.line] if params.position.line < len(document.lines) else ""
+        word = get_word_at_position(line, params.position.character)
+
+        if not word:
+            return None
+
+        provider = RenameProvider(symbol_table, params.text_document.uri)
+        return provider.rename_symbol(word, params.new_name)
+
+    except Exception as e:
+        logger.error(f"Error providing rename: {e}", exc_info=True)
         return None
 
 

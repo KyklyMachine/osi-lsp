@@ -8,16 +8,15 @@ RETRY_TIMER:
     out "Timeout for sequence: " $seq_num
     1 varset $rx_buffer
     ; Увеличиваем счетчик попыток
-    $retry_count + 1 varset retry_count
+    $retry_count2 + 1 varset $retry_count2
     
     ; Инициализируем MAX_RETRIES если нужно (эмуляция)
     3 varset MAX_RETRIES
     
     ; Проверка на превышение лимита попыток
-    $retry_count >= $MAX_RETRIES if abort_connection
+    $retry_count2 >= $MAX_RETRIES if abort_connection
 
     ; Повторная отправка (используем глобальный буфер tx_buffer, предполагая, что он не изменился)
-    ; В реальном протоколе буферы обычно хранятся в очереди
     N_DATA.REQ eventdown payload $tx_buffer length sizeof(tx_buffer)
     
     ; Перезапускаем таймер
@@ -31,7 +30,7 @@ abort_connection:
     ; Сброс состояния
     0 varset state
     0 varset is_connected
-    0 varset retry_count
+    0 varset $retry_count2
     
     ; Уведомление верхнего уровня о разрыве
     DISCONNECT.IND generateup

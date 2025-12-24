@@ -10,9 +10,10 @@ class SemanticAnalyzer(ASTVisitor):
     and performs type checking.
     """
 
-    def __init__(self, symbol_table: SymbolTable, file_uri: str = ""):
+    def __init__(self, symbol_table: SymbolTable, file_uri: str = "", update_global_refs: bool = True):
         self.symbol_table = symbol_table
         self.file_uri = file_uri
+        self.update_global_refs = update_global_refs
         self.errors: List[str] = []
         self.warnings: List[str] = []
 
@@ -41,15 +42,6 @@ class SemanticAnalyzer(ASTVisitor):
 
         # Second pass: analyze all statements
         for statement in node.statements:
-            # Skip declarations of labels/subs in second pass to avoid re-declaration errors
-            # (SymbolTable.declare_* returns False if already exists)
-            # Actually, declare_* logic in visit_label/visit_substart would trigger "already defined" again.
-            # So we should modify visit_label and visit_substart to NOT re-declare or check existence without error if it's the same definition.
-            # OR simpler: Don't call accept on Label/Substart in the loop if we handled them?
-            # But we want to visit contents of Substart.
-            # Better approach:
-            # Remove declare_label from visit_label and declare_subroutine from visit_substart
-            # and rely on the pre-pass in visit_program.
             statement.accept(self)
 
     # Removed visit_handler
@@ -79,6 +71,8 @@ class SemanticAnalyzer(ASTVisitor):
         else:
             # Mark as initialized
             self.symbol_table.initialize_symbol(node.variable)
+            # Add reference (assignment)
+            self.symbol_table.reference_symbol(node.variable, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
             # Visit expression
             expr_type = self.get_expression_type(node.expression)
@@ -99,6 +93,7 @@ class SemanticAnalyzer(ASTVisitor):
         symbol = self.symbol_table.get_symbol(node.buffer_name)
         if symbol:
             self.symbol_table.initialize_symbol(node.buffer_name)
+            self.symbol_table.reference_symbol(node.buffer_name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
         # Visit expressions
         node.total_length.accept(self)
@@ -112,6 +107,9 @@ class SemanticAnalyzer(ASTVisitor):
         buffer_symbol = self.symbol_table.get_symbol(node.buffer_name)
         if not buffer_symbol:
             self.add_error(node.line, node.column, f"Buffer '{node.buffer_name}' is not declared")
+        else:
+            # Reading from buffer is a usage
+            self.symbol_table.use_symbol(node.buffer_name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
         # Check field variables and mark as initialized
         for var_name, length in node.fields:
@@ -120,6 +118,8 @@ class SemanticAnalyzer(ASTVisitor):
                 self.add_error(node.line, node.column, f"Variable '{var_name}' is not declared")
             else:
                 self.symbol_table.initialize_symbol(var_name)
+                # Add reference (assignment)
+                pass
 
             length.accept(self)
 
@@ -129,6 +129,7 @@ class SemanticAnalyzer(ASTVisitor):
         result_symbol = self.symbol_table.get_symbol(node.result_var)
         if result_symbol:
             self.symbol_table.initialize_symbol(node.result_var)
+            pass
         else:
             self.add_error(node.line, node.column, f"Variable '{node.result_var}' is not declared")
 
@@ -141,6 +142,7 @@ class SemanticAnalyzer(ASTVisitor):
         timer_symbol = self.symbol_table.get_symbol(node.timer_var)
         if timer_symbol:
             self.symbol_table.initialize_symbol(node.timer_var)
+            pass
 
         # Visit delay expression
         node.delay.accept(self)
@@ -162,6 +164,8 @@ class SemanticAnalyzer(ASTVisitor):
             self.add_error(node.line, node.column, f"Queue '{node.queue_name}' is not declared")
         elif queue_symbol.symbol_type != SymbolType.QUEUE:
             self.add_warning(node.line, node.column, f"'{node.queue_name}' is not a queue")
+        else:
+            self.symbol_table.use_symbol(node.queue_name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
         node.value.accept(self)
 
@@ -170,6 +174,8 @@ class SemanticAnalyzer(ASTVisitor):
         queue_symbol = self.symbol_table.get_symbol(node.queue_name)
         if not queue_symbol:
             self.add_error(node.line, node.column, f"Queue '{node.queue_name}' is not declared")
+        else:
+            self.symbol_table.use_symbol(node.queue_name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
     def visit_generateup(self, node: GenerateupStatement):
         """Visit generateup statement"""
@@ -187,13 +193,13 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_goto(self, node: GotoStatement):
         """Visit goto statement"""
-        if not self.symbol_table.use_label(node.label, node.line, node.column):
+        if not self.symbol_table.use_label(node.label, node.line, node.column, self.file_uri, update_parent=self.update_global_refs):
             self.add_error(node.line, node.column, f"Label '{node.label}' is not defined")
 
     def visit_if(self, node: IfStatement):
         """Visit if statement"""
         node.condition.accept(self)
-        if not self.symbol_table.use_label(node.label, node.line, node.column):
+        if not self.symbol_table.use_label(node.label, node.line, node.column, self.file_uri, update_parent=self.update_global_refs):
             self.add_error(node.line, node.column, f"Label '{node.label}' is not defined")
 
     def visit_return(self, node: ReturnStatement):
@@ -210,7 +216,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_subprog(self, node: SubprogStatement):
         """Visit subprog statement"""
-        if not self.symbol_table.use_subroutine(node.name, node.line, node.column):
+        if not self.symbol_table.use_subroutine(node.name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs):
             self.add_error(node.line, node.column, f"Subroutine '{node.name}' is not defined")
 
     def visit_substart(self, node: SubstartStatement):
@@ -229,6 +235,9 @@ class SemanticAnalyzer(ASTVisitor):
         symbol = self.symbol_table.get_symbol(node.string_var)
         if not symbol:
             self.add_error(node.line, node.column, f"Variable '{node.string_var}' is not declared")
+        else:
+            # Modifies string
+            self.symbol_table.use_symbol(node.string_var, node.line, node.column, self.file_uri, update_parent=self.update_global_refs)
 
         node.start.accept(self)
         node.length.accept(self)
@@ -251,7 +260,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_variable(self, node: VariableExpression):
         """Visit variable expression"""
-        if not self.symbol_table.use_symbol(node.name, node.line, node.column):
+        if not self.symbol_table.use_symbol(node.name, node.line, node.column, self.file_uri, update_parent=self.update_global_refs):
             self.add_error(node.line, node.column, f"Variable '{node.name}' is not declared")
 
     def visit_binary_op(self, node: BinaryOperation):

@@ -10,7 +10,7 @@ is_connected declare integer
 ; Счетчики последовательностей
 tx_sequence declare integer
 rx_sequence declare integer
-retry_count declare integer
+retry_count2 declare integer
 
 ; Идентификаторы таймеров
 retrans_timer declare integer
